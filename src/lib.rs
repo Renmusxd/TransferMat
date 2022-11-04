@@ -310,7 +310,11 @@ fn ortho_basis(
 
             // normalize
             let s = calc_overlap(&v, &v).sqrt();
-            v.iter_mut().for_each(|x| *x /= s);
+            if s.abs() > 100.*f64::EPSILON {
+                v.iter_mut().for_each(|x| *x /= s);
+            } else {
+                v.iter_mut().for_each(|x| *x = 0.0);
+            }
 
             let self_overlap = calc_overlap(&v, &v);
             debug_assert!((1.0 - self_overlap).abs() <= 100. * f64::EPSILON);
@@ -688,6 +692,42 @@ fn gen_self_overlap(
 }
 
 #[pyfunction]
+fn gen_self_overlap_matrix(
+    py: Python,
+    l: usize,
+    k: u8,
+    d1s: Vec<usize>,
+    n_sector: Option<Vec<usize>>) -> PyResult<Py<PyArray2<f64>>> {
+        if l % 2 == 1 {
+            return Err(PyValueError::new_err("L must be even"));
+        }
+        let d2s = make_d2s(&d1s);
+        let num_gate_ns = d2s.len();
+        // Valid for even and odd, just interpreted slightly differently.
+        let states = make_states(l, k, num_gate_ns, n_sector);
+    
+        let cycles_mat = make_cycles_mat(k);
+
+        let norms = Array1::from_vec(states.iter().map(|s| {
+            let (ngs, permsa): (Vec<_>, Vec<_>) = s.iter().cloned().unzip();
+            perm_overlap(&ngs, permsa.iter().copied(), permsa.iter().copied(), &cycles_mat, &d2s)
+        }).collect());
+        let mut overlap = Array2::zeros((states.len(), states.len()));
+        ndarray::Zip::indexed(&mut overlap).par_for_each(|(i,j), x| {
+            let si = &states[i];
+            let sj = &states[j];
+            let same_n = si.iter().map(|(x,_)| x).zip(sj.iter().map(|(x,_)| x)).all(|(a,b)| a == b);
+            if same_n {
+                let (ngs, permas): (Vec<_>, Vec<_>) = si.iter().cloned().unzip(); 
+                let permbs = sj.iter().map(|(_,x)| x).copied().collect::<Vec<_>>();
+                let overlap = perm_overlap(&ngs, permas, permbs, &cycles_mat, &d2s);
+                *x = (overlap as f64) / (norms[i] as f64)
+            }
+        });
+        Ok(overlap.to_pyarray(py).to_owned())
+}
+
+#[pyfunction]
 fn gen_cycles_for_perm(perm: Vec<usize>) -> Vec<Vec<usize>> {
     cycles_for_perm(&perm)
 }
@@ -952,6 +992,7 @@ fn py_tiamat(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_cycles_for_perm, m)?)?;
     m.add_function(wrap_pyfunction!(make_cycles_mat, m)?)?;
     m.add_function(wrap_pyfunction!(gen_self_overlap, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_self_overlap_matrix, m)?)?;
     Ok(())
 }
 

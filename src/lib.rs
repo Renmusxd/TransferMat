@@ -245,13 +245,12 @@ where
     })
 }
 
-fn ortho_basis(
+fn get_self_overlaps(
     ngs: &[Vec<usize>],
     permutation_states: &[Vec<usize>],
     cycle_mat: &[Vec<Vec<Vec<usize>>>],
     d2s: &[usize],
-) -> Vec<Vec<f64>> {
-    // Make a full overlap matrix
+) -> Array2<f64> {
     let n_states = permutation_states.len();
     let norm = perm_overlap(
         ngs,
@@ -260,22 +259,29 @@ fn ortho_basis(
         cycle_mat,
         d2s,
     );
-    let overlaps = (0..n_states)
-        .map(|i| {
-            (0..n_states)
-                .map(|j| {
-                    perm_overlap(
-                        ngs,
-                        permutation_states[i].iter().copied(),
-                        permutation_states[j].iter().copied(),
-                        cycle_mat,
-                        d2s,
-                    ) as f64
-                        / norm as f64
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let mut overlaps = Array2::zeros((n_states, n_states));
+    ndarray::Zip::indexed(&mut overlaps).par_for_each(|(i, j), x| {
+        *x = perm_overlap(
+            ngs,
+            permutation_states[i].iter().copied(),
+            permutation_states[j].iter().copied(),
+            cycle_mat,
+            d2s,
+        ) as f64
+            / norm as f64;
+    });
+    overlaps
+}
+
+fn ortho_basis(
+    ngs: &[Vec<usize>],
+    permutation_states: &[Vec<usize>],
+    cycle_mat: &[Vec<Vec<Vec<usize>>>],
+    d2s: &[usize],
+) -> Vec<Vec<f64>> {
+    // Make a full overlap matrix
+    let n_states = permutation_states.len();
+    let overlaps = get_self_overlaps(ngs, permutation_states, cycle_mat, d2s);
 
     let calc_overlap = |a: &[f64], b: &[f64]| -> f64 {
         a.iter()
@@ -285,7 +291,7 @@ fn ortho_basis(
                 b.iter()
                     .copied()
                     .enumerate()
-                    .map(|(cib, cb)| ca * cb * overlaps[cia][cib])
+                    .map(|(cib, cb)| ca * cb * overlaps[(cia, cib)])
                     .sum::<f64>()
             })
             .sum()
@@ -295,12 +301,12 @@ fn ortho_basis(
     for i in 0..n_states {
         let mut v = vec![0.0; n_states];
         v[i] = 1.0;
-        for j in 0..i {
-            let overlap = calc_overlap(&v, &basis[j]);
-            v.iter_mut().zip(&basis[j]).for_each(|(x, c)| {
+        for bv in basis.iter().take(i) {
+            let overlap = calc_overlap(&v, bv);
+            v.iter_mut().zip(bv).for_each(|(x, c)| {
                 *x -= *c * overlap;
             });
-            debug_assert!(calc_overlap(&v, &basis[j]).abs() <= f64::EPSILON);
+            debug_assert!(calc_overlap(&v, bv).abs() <= f64::EPSILON);
 
             // normalize
             let s = calc_overlap(&v, &v).sqrt();
@@ -308,7 +314,7 @@ fn ortho_basis(
 
             let self_overlap = calc_overlap(&v, &v);
             debug_assert!((1.0 - self_overlap).abs() <= 100. * f64::EPSILON);
-            let mutual_overlap = calc_overlap(&v, &basis[j]);
+            let mutual_overlap = calc_overlap(&v, bv);
             debug_assert!(mutual_overlap.abs() <= 100. * f64::EPSILON);
         }
         basis.push(v);
@@ -334,7 +340,7 @@ where
     Ita: IntoIterator<Item = usize>,
     Itb: IntoIterator<Item = usize>,
 {
-    ngs.into_iter()
+    ngs.iter()
         .zip(permas.into_iter().zip(permbs.into_iter()))
         .map(|(ng, (perma, permb))| self_subset_overlap(ng, perma, permb, cycle_mat, d2s))
         .product()
@@ -367,10 +373,7 @@ fn self_subset_overlap(
     if all_cycles_same_n {
         cycles
             .iter()
-            .map(|cycle| {
-                let alpha = cycle[0];
-                d2(ng[alpha])
-            })
+            .map(|cycle| d2(ng[cycle[0]]))
             .product::<usize>()
     } else {
         0
@@ -464,9 +467,7 @@ where
                                 } else {
                                     *nalpha -= calpha
                                 }
-                                if *nalpha < 0 {
-                                    Err(())
-                                } else if *nalpha >= n1 as i64 {
+                                if *nalpha < 0 || *nalpha >= n1 as i64 {
                                     Err(())
                                 } else {
                                     Ok(())
@@ -640,6 +641,53 @@ fn cycles_for_perm(perm: &[usize]) -> Vec<Vec<usize>> {
 }
 
 #[pyfunction]
+fn gen_self_overlap(
+    py: Python,
+    l: usize,
+    k: u8,
+    d1s: Vec<usize>,
+    n_sector: Option<Vec<usize>>,
+) -> PyResult<Vec<(Py<PyArray2<usize>>, Py<PyArray2<f64>>)>> {
+    if l % 2 == 1 {
+        return Err(PyValueError::new_err("L must be even"));
+    }
+    let d2s = make_d2s(&d1s);
+    let num_gate_ns = d2s.len();
+    // Valid for even and odd, just interpreted slightly differently.
+    let states = make_states(l, k, num_gate_ns, n_sector);
+
+    let cycles_mat = make_cycles_mat(k);
+
+    // Now make the ON basis. Group each set of equal Ngs then ON within it.
+    let mut equal_ngs = HashMap::<Vec<Vec<usize>>, Vec<usize>>::default();
+    states.iter().enumerate().for_each(|(i, state)| {
+        let ns = state.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+        let list = equal_ngs.entry(ns).or_default();
+        list.push(i);
+    });
+    let subset_on = equal_ngs
+        .into_par_iter()
+        .map(|(ngs, indices)| {
+            let perms = indices
+                .iter()
+                .map(|i| states[*i].iter().map(|(_, p)| *p).collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+            let self_overlap = get_self_overlaps(&ngs, &perms, &cycles_mat, &d2s);
+            let ngs = Array2::from_shape_vec(
+                (ngs.len(), k as usize),
+                ngs.into_iter().flat_map(|v| v.into_iter()).collect(),
+            )
+            .unwrap();
+            (ngs, self_overlap)
+        })
+        .collect::<Vec<_>>();
+    Ok(subset_on
+        .into_iter()
+        .map(|(a, b)| (a.to_pyarray(py).to_owned(), b.to_pyarray(py).to_owned()))
+        .collect())
+}
+
+#[pyfunction]
 fn gen_cycles_for_perm(perm: Vec<usize>) -> Vec<Vec<usize>> {
     cycles_for_perm(&perm)
 }
@@ -686,7 +734,7 @@ fn make_ortho_overlap_matrix_raw(
     let mut equal_ngs = HashMap::<Vec<Vec<usize>>, Vec<usize>>::default();
     states.iter().enumerate().for_each(|(i, state)| {
         let ns = state.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-        let list = equal_ngs.entry(ns).or_insert(vec![]);
+        let list = equal_ngs.entry(ns).or_default();
         list.push(i);
     });
     let subset_on = equal_ngs
@@ -737,12 +785,12 @@ fn make_ortho_overlap_matrix_raw(
             let odd_ortho_state = &odd_ortho_states[odd_subindex];
 
             *x = even_indices
-                .into_iter()
-                .zip(even_ortho_state.into_iter())
+                .iter()
+                .zip(even_ortho_state.iter())
                 .flat_map(|(i, ci)| {
                     odd_indices
-                        .into_iter()
-                        .zip(odd_ortho_state.into_iter())
+                        .iter()
+                        .zip(odd_ortho_state.iter())
                         .map(move |(j, cj)| (*i, *j, ci * cj))
                 })
                 .map(|(i, j, c)| c * overlap_raw[(i, j)])
@@ -756,8 +804,8 @@ fn make_overlap_matrix_raw(
     l: usize,
     k: u8,
     d1s: Vec<usize>,
-    states: &Vec<Vec<(Vec<usize>, usize)>>,
-    cycles_mat: &Vec<Vec<Vec<Vec<usize>>>>,
+    states: &[Vec<(Vec<usize>, usize)>],
+    cycles_mat: &[Vec<Vec<Vec<usize>>>],
 ) -> Result<Array2<f64>, String> {
     if l % 2 == 1 {
         return Err("L must be even".to_string());
@@ -903,6 +951,7 @@ fn py_tiamat(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_states, m)?)?;
     m.add_function(wrap_pyfunction!(gen_cycles_for_perm, m)?)?;
     m.add_function(wrap_pyfunction!(make_cycles_mat, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_self_overlap, m)?)?;
     Ok(())
 }
 
@@ -957,5 +1006,17 @@ mod libtests {
                 let res = make_ortho_overlap_matrix_raw(l, 3, d1s.clone(), Some(vec![i, j, k]))?;
                 Ok(())
             })
+    }
+
+    #[test]
+    fn test_self_overlap() -> Result<(), String> {
+        let l = 2;
+        let k = 2;
+        let d1s = vec![1, 1];
+        let d2s = generate_d2s(d1s);
+        let cycle_mat = make_cycles_mat(k);
+
+        let overlaps = get_self_overlaps(&[vec![1, 1]], &[vec![0], vec![1]], &cycle_mat, &d2s);
+        Err("Failed".to_string())
     }
 }

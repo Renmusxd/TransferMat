@@ -14,6 +14,13 @@ panic = "abort"
 
 [dependencies]
 itertools = ">=0.10"
+num-complex = ">=0.4"
+rayon = ">=1.6"
+num-traits = ">=0.2"
+
+[dependencies.py_entropy]
+version = ">=0.1"
+git = "http://github.com/Renmusxd/RandomUnitaryLayers"
 
 [dependencies.pyo3]
 version = ">=0.17"
@@ -25,3 +32,11 @@ version = ">=0.17"
 [dependencies.ndarray]
 version = ">=0.15"
 features = ["rayon"]
+
+[dependencies.ndarray-linalg]
+version = ">=0.16"
+features = ["openblas-system"]
+
+[dependencies.rand]
+version = ">=0.8"
+features = ["small_rng"]

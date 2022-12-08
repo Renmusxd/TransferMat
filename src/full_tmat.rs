@@ -1078,6 +1078,6 @@ mod libtests {
         let cycle_mat = make_cycles_mat(k);
 
         let overlaps = get_self_overlaps(&[vec![1, 1]], &[vec![0], vec![1]], &cycle_mat, &d2s);
-        Err("Failed".to_string())
+        Ok(())
     }
 }

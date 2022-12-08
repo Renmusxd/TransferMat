@@ -1,6 +1,24 @@
+use ndarray::{Array2, ArrayView2, ArrayView3, LinalgScalar};
 use num_complex::Complex;
 use rand::prelude::*;
 use smallvec::*;
+use std::ops::Mul;
+
+// From github user notmgsk
+pub fn kron<T>(a: &Array2<T>, b: &Array2<T>) -> Array2<T>
+where
+    T: LinalgScalar,
+{
+    let dima = a.shape()[0];
+    let dimb = b.shape()[0];
+    let dimout = dima * dimb;
+    let mut out = Array2::zeros((dimout, dimout));
+    for (mut chunk, elem) in out.exact_chunks_mut((dimb, dimb)).into_iter().zip(a.iter()) {
+        let v: Array2<T> = Array2::from_elem((dimb, dimb), *(elem)) * b;
+        chunk.assign(&v);
+    }
+    out
+}
 
 // From section 2.3 of http://home.lu.lv/~sd20008/papers/essays/Random%20unitary%20[paper].pdf
 /// Make a random 2x2 unitary matrix.

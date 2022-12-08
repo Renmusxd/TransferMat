@@ -21,6 +21,7 @@ num-traits = ">=0.2"
 [dependencies.py_entropy]
 version = ">=0.1"
 git = "http://github.com/Renmusxd/RandomUnitaryLayers"
+default-features = false
 
 [dependencies.pyo3]
 version = ">=0.17"

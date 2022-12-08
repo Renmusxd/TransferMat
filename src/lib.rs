@@ -12,6 +12,7 @@ fn py_tiamat(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(make_overlap_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(make_ortho_overlap_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(generate_d2s, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_dls, m)?)?;
     m.add_function(wrap_pyfunction!(get_n_states, m)?)?;
     m.add_function(wrap_pyfunction!(get_n_uniform_states, m)?)?;
     m.add_function(wrap_pyfunction!(generate_uniform_states, m)?)?;

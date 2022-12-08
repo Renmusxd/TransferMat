@@ -33,6 +33,18 @@ pub fn generate_d2s(d1s: Vec<usize>) -> Vec<usize> {
 }
 
 #[pyfunction]
+pub fn generate_dls(das: Vec<usize>, dbs: Vec<usize>) -> Vec<usize> {
+    let num_entries = das.len() + dbs.len() - 1;
+    let mut ret = vec![0; num_entries];
+    for (i, da) in das.iter().enumerate() {
+        for (j, db) in dbs.iter().enumerate() {
+            ret[i + j] += da * db
+        }
+    }
+    ret
+}
+
+#[pyfunction]
 pub fn get_n_states(l: usize, k: u8, d1s: Vec<usize>) -> usize {
     let d2s = make_d2s(&d1s);
     let max_gate_n = d2s.len() - 1;
@@ -998,6 +1010,15 @@ pub fn fact(k: u8) -> usize {
 #[cfg(test)]
 mod libtests {
     use super::*;
+
+    #[test]
+    fn test_dls() {
+        let d1s = vec![1, 1];
+        let d2s = generate_dls(d1s.clone(), d1s.clone());
+        assert_eq!(d2s, vec![1, 2, 1]);
+        let d3s = generate_dls(d2s, d1s);
+        assert_eq!(d3s, vec![1, 3, 3, 1]);
+    }
 
     #[test]
     fn test_overlap() {

@@ -2,7 +2,7 @@ use ndarray::linalg::kron;
 use ndarray::{s, Array2, Array3, ArrayView3, Axis};
 use num_complex::Complex;
 use num_traits::One;
-use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2, ToPyArray};
+use numpy::{PyArray2, PyReadonlyArray1, ToPyArray};
 use py_entropy::utils::make_unitary;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -37,6 +37,23 @@ impl CircuitSamples {
             l,
             samples: sample_array,
         }
+    }
+
+    pub fn get_num_sector_states(&self, nsector: Vec<usize>, nbarsector: Vec<usize>) -> usize {
+        let nstates = nsector
+            .into_par_iter()
+            .map(|n| py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(self.l, n))
+            .map(|x| x.len())
+            .product::<usize>();
+        let nbstates = nbarsector
+            .into_par_iter()
+            .map(|nb| {
+                py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(self.l, nb)
+            })
+            .map(|x| x.len())
+            .product::<usize>();
+
+        nstates * nbstates
     }
 
     pub fn get_nsector_states(&self, nsector: PyReadonlyArray1<usize>) -> Vec<Vec<Vec<usize>>> {
@@ -182,7 +199,7 @@ fn construct_index(
 fn multidefect_to_binary(l: usize, x: &[usize]) -> usize {
     let mut r = 0usize;
     x.iter().for_each(|i| {
-        r = r | (1 << (l - *i - 1));
+        r |= 1 << (l - *i - 1);
     });
     r
 }

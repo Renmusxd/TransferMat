@@ -1,5 +1,6 @@
 mod full_tmat;
 mod make_submat;
+mod utils;
 
 use full_tmat::*;
 use make_submat::*;

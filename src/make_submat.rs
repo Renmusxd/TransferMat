@@ -1,9 +1,9 @@
+use crate::utils::{enumerate_states, make_unitary};
 use ndarray::linalg::kron;
 use ndarray::{s, Array2, Array3, ArrayView3, Axis};
 use num_complex::Complex;
 use num_traits::One;
 use numpy::{PyArray2, PyReadonlyArray1, ToPyArray};
-use py_entropy::utils::make_unitary;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::prelude::*;
@@ -42,14 +42,12 @@ impl CircuitSamples {
     pub fn get_num_sector_states(&self, nsector: Vec<usize>, nbarsector: Vec<usize>) -> usize {
         let nstates = nsector
             .into_par_iter()
-            .map(|n| py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(self.l, n))
+            .map(|n| enumerate_states::<8>(self.l, n))
             .map(|x| x.len())
             .product::<usize>();
         let nbstates = nbarsector
             .into_par_iter()
-            .map(|nb| {
-                py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(self.l, nb)
-            })
+            .map(|nb| enumerate_states::<8>(self.l, nb))
             .map(|x| x.len())
             .product::<usize>();
 
@@ -61,7 +59,7 @@ impl CircuitSamples {
             .as_array()
             .into_par_iter()
             .map(|n| {
-                py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(self.l, *n)
+                enumerate_states::<8>(self.l, *n)
                     .into_iter()
                     .map(|x| x.into_vec())
                     .collect::<Vec<_>>()
@@ -100,7 +98,7 @@ fn get_submatrix_raw(
         .into_par_iter()
         .copied()
         .map(|n| {
-            py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(l, n)
+            enumerate_states::<8>(l, n)
                 .into_iter()
                 .map(|x| multidefect_to_binary(l, &x))
                 .collect::<Vec<_>>()
@@ -110,7 +108,7 @@ fn get_submatrix_raw(
         .into_par_iter()
         .copied()
         .map(|nb| {
-            py_entropy::multidefect::MultiDefectStateRaw::<8>::enumerate_states(l, nb)
+            enumerate_states::<8>(l, nb)
                 .into_iter()
                 .map(|x| multidefect_to_binary(l, &x))
                 .collect::<Vec<_>>()

@@ -17,11 +17,7 @@ itertools = ">=0.10"
 num-complex = ">=0.4"
 rayon = ">=1.6"
 num-traits = ">=0.2"
-
-[dependencies.py_entropy]
-version = ">=0.1"
-git = "http://github.com/Renmusxd/RandomUnitaryLayers"
-default-features = false
+smallvec = {version = ">=1.10", features = ["const_generics"]}
 
 [dependencies.pyo3]
 version = ">=0.17"
